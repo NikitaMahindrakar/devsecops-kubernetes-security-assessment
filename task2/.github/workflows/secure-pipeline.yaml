@@ -1,0 +1,75 @@
+name: Secure CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/ledger-api
+
+jobs:
+  build-scan-sign:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Secrets Scan (Gitleaks)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: SAST Scan (Semgrep)
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: auto
+      continue-on-error: false  # hard block on critical findings
+
+    - name: Build Image
+      run: |
+        docker build -t $IMAGE:${{ github.sha }} .
+        docker tag $IMAGE:${{ github.sha }} $IMAGE:latest
+
+    - name: Dependency Scan (Trivy)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+        format: sarif
+        output: trivy-results.sarif
+        severity: CRITICAL,HIGH
+        exit-code: 1  # hard block on CRITICAL
+
+    - name: Upload Trivy SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: trivy-results.sarif
+
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Push Image
+      run: docker push $IMAGE:${{ github.sha }}
+
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign Image (Keyless)
+      run: |
+        cosign sign --yes $IMAGE:${{ github.sha }}
+
+    - name: Generate SLSA Attestation
+      run: |
+        cosign attest --yes \
+          --predicate <(echo '{"buildType":"github-actions","builder":{"id":"${{ github.run_id }}"}}') \
+          $IMAGE:${{ github.sha }}

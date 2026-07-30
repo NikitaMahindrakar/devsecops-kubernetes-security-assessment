@@ -1,0 +1,60 @@
+# This deployment SHOULD BE ACCEPTED by Kyverno policies
+# Tests: non-root, specific tag, full security context, resource limits
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-test-app
+  namespace: ledger
+  labels:
+    app: secure-test
+    purpose: kyverno-acceptance-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secure-test
+  template:
+    metadata:
+      labels:
+        app: secure-test
+    spec:
+      serviceAccountName: ledger-api-sa   # ✅ Dedicated SA
+      automountServiceAccountToken: false  # ✅ No auto token mount
+      securityContext:
+        runAsNonRoot: true                 # ✅ Non-root
+        runAsUser: 1000                    # ✅ Specific non-root user
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault             # ✅ Seccomp enabled
+      containers:
+      - name: secure-app
+        image: nginx:1.25.0               # ✅ Specific version tag
+        securityContext:
+          allowPrivilegeEscalation: false  # ✅ No privilege escalation
+          readOnlyRootFilesystem: true     # ✅ Read-only filesystem
+          runAsNonRoot: true               # ✅ Non-root
+          runAsUser: 1000
+          capabilities:
+            drop: ["ALL"]                  # ✅ All capabilities dropped
+        resources:                         # ✅ Resource limits set
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "128Mi"
+        livenessProbe:                     # ✅ Liveness probe
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:                    # ✅ Readiness probe
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        ports:
+        - containerPort: 8080

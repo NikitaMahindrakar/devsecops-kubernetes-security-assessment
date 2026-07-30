@@ -1,0 +1,62 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-root-containers
+spec:
+  validationFailureAction: Enforce
+
+  rules:
+  - name: check-runAsNonRoot
+
+    match:
+      any:
+      - resources:
+          kinds:
+            - Pod
+
+    exclude:
+      any:
+      - resources:
+          namespaces:
+            - argocd
+            - istio-system
+
+
+    validate:
+      message: "Containers must not run as root"
+      pattern:
+        spec:
+          containers:
+          - securityContext:
+              runAsNonRoot: true
+
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-latest-tag
+spec:
+  validationFailureAction: Enforce
+
+  rules:
+  - name: deny-latest
+
+    match:
+      any:
+      - resources:
+          kinds:
+            - Pod
+
+    exclude:
+      any:
+      - resources:
+          namespaces:
+            - argocd
+            - istio-system
+
+    validate:
+      message: "Using :latest tag is not allowed"
+      pattern:
+        spec:
+          containers:
+          - image: "!*:latest"

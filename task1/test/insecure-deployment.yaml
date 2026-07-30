@@ -1,0 +1,30 @@
+# This deployment SHOULD BE REJECTED by Kyverno policies
+# Tests: runs as root, uses :latest tag, no security context
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insecure-test-app
+  namespace: ledger
+  labels:
+    app: insecure-test
+    purpose: kyverno-rejection-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insecure-test
+  template:
+    metadata:
+      labels:
+        app: insecure-test
+    spec:
+      # ❌ No dedicated ServiceAccount (uses default)
+      # ❌ No securityContext at pod level
+      containers:
+      - name: insecure-app
+        image: nginx:latest          # ❌ :latest tag - should be REJECTED
+        # ❌ No securityContext - runs as root by default
+        # ❌ No resource limits
+        # ❌ No liveness/readiness probes
+        ports:
+        - containerPort: 80

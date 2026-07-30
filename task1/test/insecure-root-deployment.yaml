@@ -1,0 +1,33 @@
+# This deployment explicitly runs as root - SHOULD BE REJECTED
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insecure-root-app
+  namespace: ledger
+  labels:
+    app: insecure-root
+    purpose: kyverno-rejection-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insecure-root
+  template:
+    metadata:
+      labels:
+        app: insecure-root
+    spec:
+      containers:
+      - name: root-container
+        image: nginx:1.25.0
+        securityContext:
+          runAsUser: 0             # ❌ Explicitly root - should be REJECTED
+          runAsNonRoot: false      # ❌ Explicitly allows root
+          allowPrivilegeEscalation: true  # ❌ Privilege escalation allowed
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "128Mi"

@@ -1,0 +1,35 @@
+# This deployment runs as privileged - SHOULD BE REJECTED
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: privileged-test-app
+  namespace: ledger
+  labels:
+    app: privileged-test
+    purpose: kyverno-rejection-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: privileged-test
+  template:
+    metadata:
+      labels:
+        app: privileged-test
+    spec:
+      containers:
+      - name: privileged-container
+        image: busybox:1.36
+        securityContext:
+          privileged: true          # ❌ Privileged mode - should be REJECTED
+          runAsUser: 0              # ❌ Root user
+          capabilities:
+            add: ["NET_ADMIN", "SYS_ADMIN"]  # ❌ Dangerous capabilities
+        command: ["sleep", "3600"]
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+          limits:
+            cpu: "100m"
+            memory: "64Mi"

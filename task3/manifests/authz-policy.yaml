@@ -1,0 +1,28 @@
+# Default deny all
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: ledger
+spec: {}
+
+---
+# Explicit allow only from authorized service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-frontend
+  namespace: ledger
+spec:
+  selector:
+    matchLabels:
+      app: ledger-api
+  rules:
+  - from:
+    - source:
+        principals:
+          - "cluster.local/ns/ledger/sa/frontend-sa"
+  - to:
+    - operation:
+        methods: ["GET", "POST"]
+        paths: ["/api/*"]
