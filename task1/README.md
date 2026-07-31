@@ -1,4 +1,4 @@
-<img width="1366" height="768" alt="Screenshot 2026-07-29 155545" src="https://github.com/user-attachments/assets/6d15b4f4-7786-44fd-a6f1-abffdd12965e" /># Task 1 – Deploy & Secure the Workload
+# Task 1 – Deploy & Secure the Workload
 
 ## Overview
 
