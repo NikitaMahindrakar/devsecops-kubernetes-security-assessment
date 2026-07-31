@@ -1,69 +1,72 @@
-# ── ArgoCD Drift Detection Test ───────────────────────────────────────────────
-# Proves ArgoCD detects + self-heals manual kubectl edits
-# Run AFTER ArgoCD is installed and application.yaml is applied
+# ArgoCD Drift Detection Test
+# Verifies that ArgoCD detects and automatically fixes manual changes.
 
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host " ArgoCD Drift Detection Test" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 1: Show current image ─────────────────────────────────────────────
-Write-Host "[1/5] Current image in deployment:" -ForegroundColor Yellow
-$currentImage = kubectl get deployment ledger-api -n ledger `
-    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1
-Write-Host "  Current: $currentImage" -ForegroundColor White
+# Step 1 - Show current image
+Write-Host "[1/5] Checking current deployment image..." -ForegroundColor Yellow
 
-# ── Step 2: Introduce drift ────────────────────────────────────────────────
+$currentImage = kubectl get deployment ledger-api -n ledger `
+    -o jsonpath="{.spec.template.spec.containers[0].image}"
+
+Write-Host "Current Image : $currentImage" -ForegroundColor White
+
+# Step 2 - Introduce Drift
 Write-Host ""
-Write-Host "[2/5] Introducing drift — changing image to nginx:latest..." -ForegroundColor Yellow
+Write-Host "[2/5] Changing image to nginx:latest..." -ForegroundColor Yellow
+
 kubectl set image deployment/ledger-api `
     ledger-api=nginx:latest `
     -n ledger
 
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 5
 
-$driftedImage = kubectl get deployment ledger-api -n ledger `
-    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1
-Write-Host "  Drifted to: $driftedImage" -ForegroundColor Red
-Write-Host "  [!] DRIFT INTRODUCED — image changed from git state" -ForegroundColor Red
+$driftImage = kubectl get deployment ledger-api -n ledger `
+    -o jsonpath="{.spec.template.spec.containers[0].image}"
 
-# ── Step 3: Show ArgoCD detected drift ────────────────────────────────────
+Write-Host "Image after change : $driftImage" -ForegroundColor Red
+
+# Step 3 - Check ArgoCD Status
 Write-Host ""
-Write-Host "[3/5] ArgoCD status (should show OutOfSync soon):" -ForegroundColor Yellow
-Write-Host "  Checking sync status..." -ForegroundColor White
-Start-Sleep -Seconds 10
+Write-Host "[3/5] Waiting for ArgoCD to detect drift..." -ForegroundColor Yellow
 
-$syncStatus = kubectl get application ledger-api -n argocd `
-    -o jsonpath='{.status.sync.status}' 2>&1
-$healthStatus = kubectl get application ledger-api -n argocd `
-    -o jsonpath='{.status.health.status}' 2>&1
-Write-Host "  Sync Status: $syncStatus" -ForegroundColor $(
-    if ($syncStatus -eq "OutOfSync") { "Red" } else { "Yellow" }
-)
-Write-Host "  Health Status: $healthStatus" -ForegroundColor White
+Start-Sleep -Seconds 15
 
-# ── Step 4: Watch self-heal ────────────────────────────────────────────────
+$syncStatus = kubectl get applications.argoproj.io ledger-api `
+    -n argocd `
+    -o jsonpath="{.status.sync.status}"
+
+$healthStatus = kubectl get applications.argoproj.io ledger-api `
+    -n argocd `
+    -o jsonpath="{.status.health.status}"
+
+Write-Host "Sync Status   : $syncStatus"
+Write-Host "Health Status : $healthStatus"
+
+# Step 4 - Wait for Self Heal
 Write-Host ""
-Write-Host "[4/5] Watching ArgoCD self-heal (up to 3 minutes)..." -ForegroundColor Yellow
-Write-Host "  ALSO OPEN: https://localhost:8080 to see ArgoCD UI" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "[4/5] Waiting for self-heal..." -ForegroundColor Yellow
 
-$maxWait  = 180  # 3 minutes
-$interval = 10   # check every 10 seconds
-$elapsed  = 0
-$healed   = $false
+$timeout = 180
+$elapsed = 0
+$interval = 10
+$healed = $false
 
-while ($elapsed -lt $maxWait) {
+while ($elapsed -lt $timeout) {
+
     $image = kubectl get deployment ledger-api -n ledger `
-        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1
-    $sync = kubectl get application ledger-api -n argocd `
-        -o jsonpath='{.status.sync.status}' 2>&1
+        -o jsonpath="{.spec.template.spec.containers[0].image}"
 
-    Write-Host "  [${elapsed}s] Image: $image | Sync: $sync" -ForegroundColor White
+    $sync = kubectl get applications.argoproj.io ledger-api `
+        -n argocd `
+        -o jsonpath="{.status.sync.status}"
 
-    if ($image -notmatch "nginx:latest" -and $sync -eq "Synced") {
-        Write-Host ""
-        Write-Host "  [+] SELF-HEALED! Image reverted back to: $image" -ForegroundColor Green
+    Write-Host "[$elapsed sec] Image=$image | Sync=$sync"
+
+    if (($image -ne "nginx:latest") -and ($sync -eq "Synced")) {
         $healed = $true
         break
     }
@@ -72,30 +75,39 @@ while ($elapsed -lt $maxWait) {
     $elapsed += $interval
 }
 
-# ── Step 5: Final result ───────────────────────────────────────────────────
+# Step 5 - Final Result
 Write-Host ""
-Write-Host "[5/5] Final state:" -ForegroundColor Yellow
+Write-Host "[5/5] Final Status" -ForegroundColor Yellow
+
 $finalImage = kubectl get deployment ledger-api -n ledger `
-    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1
-$finalSync = kubectl get application ledger-api -n argocd `
-    -o jsonpath='{.status.sync.status}' 2>&1
+    -o jsonpath="{.spec.template.spec.containers[0].image}"
 
-Write-Host "  Final Image:  $finalImage" -ForegroundColor White
-Write-Host "  Sync Status:  $finalSync" -ForegroundColor White
+$finalSync = kubectl get applications.argoproj.io ledger-api `
+    -n argocd `
+    -o jsonpath="{.status.sync.status}"
 
 Write-Host ""
-Write-Host "================================================" -ForegroundColor $(
-    if ($healed) { "Green" } else { "Red" }
-)
+Write-Host "Final Image : $finalImage"
+Write-Host "Sync Status : $finalSync"
+
+Write-Host ""
+
 if ($healed) {
-    Write-Host " DRIFT DETECTION: PASSED" -ForegroundColor Green
-    Write-Host " ArgoCD detected and reverted the manual change" -ForegroundColor Green
-    Write-Host " Git is the single source of truth — proven!" -ForegroundColor Green
-} else {
-    Write-Host " DRIFT DETECTION: TIMEOUT" -ForegroundColor Red
-    Write-Host " ArgoCD may need more time or check ArgoCD UI" -ForegroundColor Yellow
-    Write-Host " Open: https://localhost:8080 and check sync status" -ForegroundColor Yellow
+
+    Write-Host "==============================================" -ForegroundColor Green
+    Write-Host " Drift Detection Test PASSED" -ForegroundColor Green
+    Write-Host " ArgoCD detected the manual change." -ForegroundColor Green
+    Write-Host " ArgoCD automatically restored Git state." -ForegroundColor Green
+    Write-Host " Git is the single source of truth." -ForegroundColor Green
+    Write-Host "==============================================" -ForegroundColor Green
+
 }
-Write-Host "================================================" -ForegroundColor $(
-    if ($healed) { "Green" } else { "Red" }
-)
+else {
+
+    Write-Host "==============================================" -ForegroundColor Red
+    Write-Host " Drift Detection Test FAILED or TIMED OUT" -ForegroundColor Red
+    Write-Host " Check ArgoCD UI: https://localhost:8080" -ForegroundColor Yellow
+    Write-Host " Verify Auto Sync and Self Heal are enabled." -ForegroundColor Yellow
+    Write-Host "==============================================" -ForegroundColor Red
+
+}
