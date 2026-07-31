@@ -2,74 +2,154 @@ name: Secure CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/ledger-api
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  security-events: write
 
 jobs:
   build-scan-sign:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      security-events: write
+
+    env:
+      IMAGE_NAME: ledger-api
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      # ------------------------------
+      # Checkout Repository
+      # ------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Secrets Scan (Gitleaks)
-      uses: gitleaks/gitleaks-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ------------------------------
+      # Convert GHCR image to lowercase
+      # ------------------------------
+      - name: Set Image Name
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=ghcr.io/$OWNER/${IMAGE_NAME}" >> $GITHUB_ENV
 
-    - name: SAST Scan (Semgrep)
-      uses: returntocorp/semgrep-action@v1
-      with:
-        config: auto
-      continue-on-error: false  # hard block on critical findings
+      # ------------------------------
+      # Scan Secrets
+      # ------------------------------
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build Image
-      run: |
-        docker build -t $IMAGE:${{ github.sha }} .
-        docker tag $IMAGE:${{ github.sha }} $IMAGE:latest
+      # ------------------------------
+      # SAST Scan
+      # ------------------------------
+      - name: Semgrep Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto
 
-    - name: Dependency Scan (Trivy)
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ env.IMAGE }}:${{ github.sha }}
-        format: sarif
-        output: trivy-results.sarif
-        severity: CRITICAL,HIGH
-        exit-code: 1  # hard block on CRITICAL
+      # ------------------------------
+      # Build Docker Image
+      # ------------------------------
+      - name: Build Docker Image
+        run: |
+          docker build \
+            -t $IMAGE:${{ github.sha }} \
+            -t $IMAGE:latest .
 
-    - name: Upload Trivy SARIF
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: trivy-results.sarif
+      # ------------------------------
+      # Scan Docker Image
+      # ------------------------------
+      - name: Trivy Image Scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: 1
 
-    - name: Login to GHCR
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      # ------------------------------
+      # Upload SARIF
+      # ------------------------------
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
 
-    - name: Push Image
-      run: docker push $IMAGE:${{ github.sha }}
+      # ------------------------------
+      # Login to GHCR
+      # ------------------------------
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install Cosign
-      uses: sigstore/cosign-installer@v3
+      # ------------------------------
+      # Push Images
+      # ------------------------------
+      - name: Push Docker Images
+        run: |
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
 
-    - name: Sign Image (Keyless)
-      run: |
-        cosign sign --yes $IMAGE:${{ github.sha }}
+      # ------------------------------
+      # Install Cosign
+      # ------------------------------
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
 
-    - name: Generate SLSA Attestation
-      run: |
-        cosign attest --yes \
-          --predicate <(echo '{"buildType":"github-actions","builder":{"id":"${{ github.run_id }}"}}') \
-          $IMAGE:${{ github.sha }}
+      # ------------------------------
+      # Sign Image
+      # ------------------------------
+      - name: Sign Docker Image
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes $IMAGE:${{ github.sha }}
+
+      # ------------------------------
+      # Create SLSA Predicate
+      # ------------------------------
+      - name: Create Predicate
+        run: |
+          cat <<EOF > predicate.json
+          {
+            "buildType": "https://github.com/Attestations/GitHubActions@v1",
+            "builder": {
+              "id": "${{ github.run_id }}"
+            }
+          }
+          EOF
+
+      # ------------------------------
+      # Generate Attestation
+      # ------------------------------
+      - name: Generate SLSA Attestation
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign attest \
+            --yes \
+            --predicate predicate.json \
+            --type slsaprovenance \
+            $IMAGE:${{ github.sha }}
+
+      # ------------------------------
+      # Success Message
+      # ------------------------------
+      - name: Pipeline Completed
+        run: |
+          echo "====================================="
+          echo "Build Successful"
+          echo "Image: $IMAGE:${{ github.sha }}"
+          echo "Scans Passed"
+          echo "Image Signed"
+          echo "SLSA Attestation Generated"
+          echo "====================================="
