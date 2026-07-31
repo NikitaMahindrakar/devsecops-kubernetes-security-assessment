@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ledger-project
+  namespace: argocd
+spec:
+  description: "Ledger API — PCI DSS scoped project"
+
+  # ── Allowed source repos ───────────────────────────────────────────────────
+  sourceRepos:
+  - https://github.com/NikitaMahindrakar/devsecops-kubernetes-security-assessment
+
+  # ── Allowed destinations ───────────────────────────────────────────────────
+  destinations:
+  - namespace: ledger
+    server: https://kubernetes.default.svc
+
+  # ── Allowed resource types ─────────────────────────────────────────────────
+  clusterResourceWhitelist:
+  - group: ""
+    kind: Namespace
+
+  namespaceResourceWhitelist:
+  - group: "apps"
+    kind: Deployment
+  - group: ""
+    kind: Service
+  - group: ""
+    kind: ServiceAccount
+  - group: ""
+    kind: ConfigMap
+  - group: "bitnami.com"
+    kind: SealedSecret
+  - group: "networking.k8s.io"
+    kind: Ingress
+  - group: "rbac.authorization.k8s.io"
+    kind: Role
+  - group: "rbac.authorization.k8s.io"
+    kind: RoleBinding
+
+  # ── RBAC for this project ──────────────────────────────────────────────────
+  roles:
+  - name: developer
+    description: "Read-only access to ledger project"
+    policies:
+    - p, proj:ledger-project:developer, applications, get, ledger-project/*, allow
+    - p, proj:ledger-project:developer, applications, sync, ledger-project/*, deny
+  - name: operator
+    description: "Can sync but not delete"
+    policies:
+    - p, proj:ledger-project:operator, applications, *, ledger-project/*, allow
+    - p, proj:ledger-project:operator, applications, delete, ledger-project/*, deny

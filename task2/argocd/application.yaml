@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ledger-api
+  namespace: argocd
+  labels:
+    app: ledger-api
+    environment: production
+  # Finalizer ensures ArgoCD cleans up resources when app is deleted
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: ledger-deployments
+
+spec:
+  project: default
+
+  # ── Source: Git repo is the single source of truth ────────────────────────
+  source:
+    # IMPORTANT: Replace YOUR_USERNAME with your GitHub username
+    repoURL: https://github.com/NikitaMahindrakar/devsecops-kubernetes-security-assessment
+    targetRevision: main
+    path: task1/manifests
+
+  # ── Destination: Deploy to local cluster, ledger namespace ───────────────
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ledger
+
+  # ── Sync Policy: Automated with self-heal + drift detection ───────────────
+  syncPolicy:
+    automated:
+      prune: true        # Remove K8s resources deleted from git
+      selfHeal: true     # REVERT any manual kubectl edits automatically
+      allowEmpty: false  # Never sync an empty manifest set
+
+    syncOptions:
+    - CreateNamespace=true         # Create ledger namespace if missing
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true      # Only sync resources that differ
+
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # ── Health checks ──────────────────────────────────────────────────────────
+  revisionHistoryLimit: 3

@@ -1,0 +1,48 @@
+# ── Gitleaks Configuration ───────────────────────────────────────────────────
+# Customizes secret detection for the ledger-api project
+
+title = "Dodo Payments — Gitleaks Config"
+
+[extend]
+# Extend default rules
+useDefault = true
+
+# ── Custom rules for Dodo Payments specific secrets ──────────────────────────
+[[rules]]
+id = "dodo-api-key"
+description = "Dodo Payments API Key"
+regex = '''(?i)(dodo[_-]?api[_-]?key|dodo[_-]?secret)['":\s=]+([a-zA-Z0-9]{32,64})'''
+tags = ["api-key", "dodo-payments"]
+severity = "CRITICAL"
+
+[[rules]]
+id = "generic-db-password"
+description = "Database password in code"
+regex = '''(?i)(db[_-]?pass(word)?|database[_-]?pass(word)?)['":\s=]+['"]((?!your-password|changeme|placeholder|example)[^'"]{8,})['"]'''
+tags = ["database", "password"]
+severity = "HIGH"
+
+[[rules]]
+id = "pci-card-data"
+description = "Credit card number pattern"
+regex = '''\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b'''
+tags = ["pci", "card-data"]
+severity = "CRITICAL"
+
+# ── Allowlist — files/paths to skip ──────────────────────────────────────────
+[allowlist]
+description = "Allowlisted files and patterns"
+paths = [
+  '''.gitleaks.toml''',
+  '''task1/manifests/sealed-secret.yaml''',  # Already encrypted
+  '''task4/pentest/output/''',               # Test output files
+  '''task4/recon/output/''',                 # Recon output files
+]
+
+# Known test values that are not real secrets
+regexes = [
+  '''supersecret''',   # Placeholder in sealed secret creation example
+  '''myapikey''',      # Placeholder in sealed secret creation example
+]
+
+commits = []

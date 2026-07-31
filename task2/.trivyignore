@@ -1,0 +1,20 @@
+# ── Trivy CVE Ignore List ─────────────────────────────────────────────────────
+# Format: CVE-ID  # Justification | Ticket | Expires
+#
+# POLICY:
+# - Only CRITICAL/HIGH CVEs with NO available fix may be ignored
+# - Each entry MUST have: justification, tracking ticket, expiry (max 90 days)
+# - Entries are reviewed weekly and removed when fix becomes available
+# - Any entry older than 90 days auto-fails the pipeline (remove to re-evaluate)
+#
+# HOW TO ADD:
+# 1. Confirm no fix exists: trivy image --ignore-unfixed=false <image>
+# 2. Open a tracking issue in GitHub
+# 3. Add entry below with expiry date 90 days from today
+# 4. Get approval from security team
+#
+# CURRENT EXCEPTIONS:
+# (none — all CVEs resolved or have available fixes)
+#
+# EXAMPLE FORMAT (do not uncomment without real CVE):
+# CVE-2023-XXXXX  # python:3.6-slim — no fix in base image | Issue #1 | Expires 2026-10-29
