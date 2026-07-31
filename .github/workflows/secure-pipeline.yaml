@@ -14,58 +14,66 @@ permissions:
   id-token: write
   security-events: write
 
+env:
+  IMAGE_NAME: ledger-api
+
 jobs:
-  build-scan-sign:
+  security-pipeline:
     runs-on: ubuntu-latest
 
-    env:
-      IMAGE_NAME: ledger-api
-
     steps:
-      # ------------------------------
-      # Checkout Repository
-      # ------------------------------
+
+      # Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ------------------------------
-      # Convert GHCR image to lowercase
-      # ------------------------------
+      # Create lowercase GHCR image name
       - name: Set Image Name
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE=ghcr.io/$OWNER/${IMAGE_NAME}" >> $GITHUB_ENV
 
-      # ------------------------------
-      # Scan Secrets
-      # ------------------------------
-      - name: Gitleaks Scan
+      ####################################################
+      # Gitleaks
+      ####################################################
+      - name: Secrets Scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------
-      # SAST Scan
-      # ------------------------------
+      ####################################################
+      # Semgrep
+      ####################################################
       - name: Semgrep Scan
-        uses: returntocorp/semgrep-action@v1
+        uses: semgrep/semgrep-action@v1
         with:
           config: auto
 
-      # ------------------------------
+      ####################################################
       # Build Docker Image
-      # ------------------------------
+      ####################################################
       - name: Build Docker Image
         run: |
           docker build \
-            -t $IMAGE:${{ github.sha }} \
-            -t $IMAGE:latest .
+          -t $IMAGE:${{ github.sha }} \
+          -t $IMAGE:latest .
 
-      # ------------------------------
-      # Scan Docker Image
-      # ------------------------------
+      ####################################################
+      # Trivy Filesystem Scan
+      ####################################################
+      - name: Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      ####################################################
+      # Trivy Image Scan
+      ####################################################
       - name: Trivy Image Scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
           format: sarif
@@ -73,17 +81,17 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: 1
 
-      # ------------------------------
+      ####################################################
       # Upload SARIF
-      # ------------------------------
-      - name: Upload Trivy SARIF
+      ####################################################
+      - name: Upload Trivy Report
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
 
-      # ------------------------------
-      # Login to GHCR
-      # ------------------------------
+      ####################################################
+      # Login GHCR
+      ####################################################
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -91,49 +99,49 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------
-      # Push Images
-      # ------------------------------
+      ####################################################
+      # Push Image
+      ####################################################
       - name: Push Docker Images
         run: |
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
 
-      # ------------------------------
+      ####################################################
       # Install Cosign
-      # ------------------------------
+      ####################################################
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      # ------------------------------
+      ####################################################
       # Sign Image
-      # ------------------------------
-      - name: Sign Docker Image
+      ####################################################
+      - name: Cosign Sign
         env:
-          COSIGN_EXPERIMENTAL: "1"
+          COSIGN_EXPERIMENTAL: "true"
         run: |
           cosign sign --yes $IMAGE:${{ github.sha }}
 
-      # ------------------------------
-      # Create SLSA Predicate
-      # ------------------------------
-      - name: Create Predicate
+      ####################################################
+      # Create Predicate
+      ####################################################
+      - name: Create SLSA Predicate
         run: |
-          cat <<EOF > predicate.json
+          cat > predicate.json <<EOF
           {
-            "buildType": "https://github.com/Attestations/GitHubActions@v1",
-            "builder": {
-              "id": "${{ github.run_id }}"
+            "buildType":"https://github.com/Attestations/GitHubActions",
+            "builder":{
+              "id":"${{ github.run_id }}"
             }
           }
           EOF
 
-      # ------------------------------
+      ####################################################
       # Generate Attestation
-      # ------------------------------
+      ####################################################
       - name: Generate SLSA Attestation
         env:
-          COSIGN_EXPERIMENTAL: "1"
+          COSIGN_EXPERIMENTAL: "true"
         run: |
           cosign attest \
             --yes \
@@ -141,15 +149,17 @@ jobs:
             --type slsaprovenance \
             $IMAGE:${{ github.sha }}
 
-      # ------------------------------
-      # Success Message
-      # ------------------------------
-      - name: Pipeline Completed
+      ####################################################
+      # Summary
+      ####################################################
+      - name: Pipeline Summary
         run: |
-          echo "====================================="
-          echo "Build Successful"
-          echo "Image: $IMAGE:${{ github.sha }}"
-          echo "Scans Passed"
-          echo "Image Signed"
-          echo "SLSA Attestation Generated"
-          echo "====================================="
+          echo "========================================"
+          echo "Security Pipeline Completed"
+          echo "Image : $IMAGE:${{ github.sha }}"
+          echo "Secrets Scan : Passed"
+          echo "SAST : Passed"
+          echo "Trivy : Passed"
+          echo "Cosign : Signed"
+          echo "SLSA : Generated"
+          echo "========================================"
